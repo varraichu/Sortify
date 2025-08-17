@@ -11,10 +11,10 @@ function App() {
 
   const [codeVerifier, setCodeVerifier] = useState("");
   const [accessToken, setAccessToken] = useState("");
-  const [likedSongs, setLikedSongs] = useState([]);
+  const [enhancedSongs, setEnhancedSongs] = useState([]);
+  const [stats, setStats] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  const lastFmApiKey = '71cc238599a7ced74ba12364bcc0cf50'
   // Ref to prevent double execution
   const hasProcessedAuth = useRef(false);
 
@@ -22,18 +22,15 @@ function App() {
     const res = await fetch("http://localhost:3000/auth");
     const data = await res.json();
 
-    // save verifier for later token exchange
     console.log("code data: ", data)
     setCodeVerifier(data.codeVerifier)
     localStorage.setItem("code_verifier", data.codeVerifier);
 
-    // now navigate to Spotify login
     window.location.href = data.authUrl;
   }
 
   async function getAccessToken(code) {
     const codeVerifier = localStorage.getItem('code_verifier')
-    console.log("verifier", codeVerifier)
     const res = await fetch("http://localhost:3000/get-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -43,7 +40,6 @@ function App() {
       })
     });
     const data = await res.json();
-    console.log("Token response:", data)
 
     if (data.access_token) {
       localStorage.setItem("access_token", data.access_token);
@@ -62,7 +58,6 @@ function App() {
 
     const data = await result.json();
 
-    // set states
     setDisplayName(data.display_name);
     setAvatarUrl(data.images?.[0]?.url || "");
     setUserId(data.id);
@@ -74,7 +69,7 @@ function App() {
     return data;
   }
 
-  async function getLikedSongs() {
+  async function getEnhancedLikedSongs() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('access_token');
@@ -85,31 +80,17 @@ function App() {
       });
 
       const data = await result.json();
-      console.log(`Received ${data.total} liked songs:`, data);
-      setLikedSongs(data.songs);
+      console.log('Enhanced songs data:', data);
+      setEnhancedSongs(data.songs);
+      setStats(data.stats);
     } catch (error) {
-      console.error("Error fetching liked songs:", error);
+      console.error("Error fetching enhanced songs:", error);
     } finally {
       setIsLoading(false);
     }
   }
 
-  async function lastFmApi(){
-    try{
-      const result = await fetch(`http://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${lastFmApiKey}&artist=ariana grande&track=in my head&format=json`, {
-      })
-
-      const data = await result.json();
-      console.log(data);
-    }
-    catch(error){
-
-    }
-  }
-
-
   useEffect(() => {
-    // Prevent double execution in Strict Mode
     if (hasProcessedAuth.current) return;
 
     const params = new URLSearchParams(window.location.search);
@@ -121,25 +102,19 @@ function App() {
           hasProcessedAuth.current = true;
           await redirectToAuthCodeFlow();
         } else {
-          console.log("Processing auth code")
           hasProcessedAuth.current = true;
 
-          // Check if we already have a valid token
           if (!accessToken) {
-            console.log("Getting access token")
             const token = await getAccessToken(code);
-            console.log("Token received:", token)
             await fetchProfile(token);
-            // clean URL so code isn't reused
             window.history.replaceState({}, document.title, "/");
           } else {
-            console.log("Using existing token")
             await fetchProfile(accessToken);
           }
         }
       } catch (error) {
         console.error("Auth error:", error);
-        hasProcessedAuth.current = false; // Allow retry on error
+        hasProcessedAuth.current = false;
       }
     }
 
@@ -147,7 +122,7 @@ function App() {
   }, []);
 
   return (
-    <div>
+    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
       <h1>Display your Spotify profile data</h1>
 
       <section id="profile">
@@ -158,32 +133,115 @@ function App() {
           <li>Email: <span>{email}</span></li>
           <li>Spotify URI: <a href={spotifyUri}>{spotifyUri}</a></li>
           <li>Link: <a href={profileUrl}>{profileUrl}</a></li>
-          <li>Profile Image: {imgUrl && <img src={imgUrl} alt="profile" width={100} />}</li>
         </ul>
       </section>
       
-      <div>
-        <button onClick={getLikedSongs} disabled={isLoading}>
-          {isLoading ? 'Fetching All Liked Songs...' : 'Get All Liked Songs'}
+      <div style={{ marginTop: '30px' }}>
+        <button 
+          onClick={getEnhancedLikedSongs} 
+          disabled={isLoading}
+          style={{ 
+            padding: '10px 20px', 
+            fontSize: '16px', 
+            backgroundColor: isLoading ? '#ccc' : '#1db954',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: isLoading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {isLoading ? 'Fetching & Enhancing Songs...' : 'Get Enhanced Liked Songs'}
         </button>
         
-        {likedSongs.length > 0 && (
-          <div>
-            <h3>Your Liked Songs ({likedSongs.length} total):</h3>
-            <ul style={{ maxHeight: '400px', overflowY: 'auto' }}>
-              {likedSongs.map((item, index) => (
-                <li key={index} style={{ marginBottom: '10px' }}>
-                  <strong>{item.track.name}</strong> by {item.track.artists.map(a => a.name).join(', ')}
-                  <br />
-                  <small>Added: {new Date(item.added_at).toLocaleDateString()}</small>
-                </li>
-              ))}
+        {stats && (
+          <div style={{ 
+            marginTop: '20px', 
+            padding: '15px', 
+            backgroundColor: '#f0f0f0', 
+            borderRadius: '5px' 
+          }}>
+            <h3>📊 Your Music Stats</h3>
+            <ul>
+              <li><strong>Total Songs:</strong> {stats.total_songs}</li>
+              <li><strong>Songs with Last.fm data:</strong> {stats.songs_with_lastfm_data}</li>
+              <li><strong>Average Popularity:</strong> {stats.avg_popularity}/100</li>
+              <li><strong>Unique Genres:</strong> {stats.unique_genres.length}</li>
+              <li><strong>Top Genres:</strong> {stats.unique_genres.slice(0, 10).join(', ')}</li>
             </ul>
           </div>
         )}
+        
+        {enhancedSongs.length > 0 && (
+          <div style={{ marginTop: '20px' }}>
+            <h3>🎵 Your Enhanced Liked Songs ({enhancedSongs.length} total):</h3>
+            <div style={{ maxHeight: '600px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '5px' }}>
+              {enhancedSongs.map((song, index) => (
+                <div key={index} style={{ 
+                  padding: '15px', 
+                  borderBottom: '1px solid #eee',
+                  backgroundColor: index % 2 === 0 ? '#fafafa' : 'white'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <h4 style={{ margin: '0 0 5px 0', color: '#1db954' }}>
+                        {song.spotify.track.name}
+                      </h4>
+                      <p style={{ margin: '0 0 10px 0', color: '#666' }}>
+                        by {song.spotify.track.artists.map(a => a.name).join(', ')}
+                      </p>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginTop: '10px' }}>
+                        <div>
+                          <strong>🎧 Last.fm Stats:</strong><br/>
+                          {song.lastfm.listeners && <span>👥 {parseInt(song.lastfm.listeners).toLocaleString()} listeners<br/></span>}
+                          {song.lastfm.playcount && <span>▶️ {parseInt(song.lastfm.playcount).toLocaleString()} plays<br/></span>}
+                          {song.lastfm.duration && <span>⏱️ {Math.round(song.lastfm.duration/1000/60*100)/100} min</span>}
+                        </div>
+                        
+                        <div>
+                          <strong>🏷️ Genres:</strong><br/>
+                          {song.lastfm.tags.length > 0 ? (
+                            <span style={{ fontSize: '12px' }}>
+                              {song.lastfm.tags.slice(0, 4).map(tag => (
+                                <span key={tag} style={{ 
+                                  backgroundColor: '#e1f5fe', 
+                                  padding: '2px 6px', 
+                                  margin: '2px', 
+                                  borderRadius: '10px',
+                                  display: 'inline-block'
+                                }}>
+                                  {tag}
+                                </span>
+                              ))}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#999' }}>No genre data</span>
+                          )}
+                        </div>
+                        
+                        <div>
+                          <strong>📈 Spotify:</strong><br/>
+                          <span>Popularity: {song.spotify.track.popularity}/100<br/></span>
+                          <span>Added: {new Date(song.spotify.added_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+                      
+                      {song.lastfm.wiki_summary && (
+                        <details style={{ marginTop: '10px' }}>
+                          <summary style={{ cursor: 'pointer', color: '#1db954' }}>📖 About this song</summary>
+                          <p style={{ fontSize: '12px', marginTop: '5px', color: '#666' }}>
+                            {song.lastfm.wiki_summary.replace(/<[^>]*>/g, '').slice(0, 200)}...
+                          </p>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-
-      <button onClick={lastFmApi}>LASTFM</button>
     </div>
   );
 }
